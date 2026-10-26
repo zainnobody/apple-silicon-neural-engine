@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage 0: build llama.cpp with Vulkan, then measure GPU and CPU speed with llama-bench.
 # Run as your user on a GPU boot (native Mesa active). Only "deps" uses sudo.
-#   llm/stage0.sh deps     install cmake and glslc (sudo password)
+#   llm/stage0.sh deps     install cmake, glslc and SPIR-V headers (sudo password)
 #   llm/stage0.sh build    clone and build llama.cpp
 #   llm/stage0.sh models   download the test models (about 7 GB)
 #   llm/stage0.sh bench    run llama-bench, Vulkan and CPU, write results
@@ -18,7 +18,7 @@ mkdir -p "$WORK/models" "$WORK/results"
 
 case "${1:-}" in
 deps)
-	sudo dnf install -y cmake glslc libshaderc-devel vulkan-headers vulkan-loader-devel
+	sudo dnf install -y cmake glslc libshaderc-devel spirv-headers-devel vulkan-headers vulkan-loader-devel
 	;;
 build)
 	[ -d "$WORK/llama.cpp" ] || git clone "$LLAMA_REPO" "$WORK/llama.cpp"
