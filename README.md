@@ -47,4 +47,5 @@ The ANE has value for low power and for prefill of small, fixed-shape models. It
 
 | Path | Contents |
 |---|---|
+| `llm/stage0.sh` | Stage 0: build llama.cpp with Vulkan, download two test models, run `llama-bench` on the GPU and the CPU |
 | `docs/research-2026-10-26.md` | Research notes with sources: driver status, H15 facts, compiler problem, LLM speed data, staged plan |
