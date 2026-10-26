@@ -32,7 +32,7 @@ models)
 	for m in "${MODELS[@]}"; do
 		set -- $m
 		if [ ! -f "$WORK/models/$2" ]; then
-			curl -fL --retry 3 -o "$WORK/models/$2.part" "https://huggingface.co/$1/resolve/main/$2"
+			curl -fsSL --retry 3 -o "$WORK/models/$2.part" "https://huggingface.co/$1/resolve/main/$2"
 			mv -f "$WORK/models/$2.part" "$WORK/models/$2"
 		fi
 		sha256sum "$WORK/models/$2"
