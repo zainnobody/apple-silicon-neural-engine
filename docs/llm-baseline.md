@@ -1,6 +1,6 @@
 # Stage 0: LLM baseline on the M3 Pro (2026-10-26)
 
-Machine: MacBook Pro 16-inch M3 Pro (J516s), 16 GB, Fedora Asahi Remix 44, kernel 7.2.11-m3gpu+ (SiliconForest, native GPU), native Mesa 26.3.0-devel (SiliconForest 7515336) in `/opt/mesa-m3`.
+Machine: MacBook Pro 16-inch M3 Pro (J516s), 18 GB, Fedora Asahi Remix 44, kernel 7.2.11-m3gpu+ (SiliconForest, native GPU), native Mesa 26.3.0-devel (SiliconForest 7515336) in `/opt/mesa-m3`.
 llama.cpp: 63b4b303 (build 11910). Tool: `llama-bench -p 512 -n 128 -r 3`. Models: bartowski GGUF, Q4_K_M. Runs started over SSH, no desktop load.
 
 ## Results
@@ -21,7 +21,7 @@ Correctness: the same prompt at temperature 0 gives the same 40 tokens on the GP
 ## What the numbers say
 
 - Prompt processing: the GPU is 1.9 to 2.4 times faster than the CPU.
-- Token generation: the GPU is not faster than the CPU. The 8B model makes 5.8 tokens/s on the GPU and 6.6 on the CPU. The profile shows the reason: memory. Both the GPU and the CPU read memory at only about 32 GB/s on this system (published: 150 GB/s). 4.6 GB of weights at 30 GB/s gives about 6.5 tokens/s, which matches both results. Dispatch overhead is under 10% of the token time. Details: `agx-linux-kit/docs/performance.md`, section "Memory bandwidth".
+- Token generation: the GPU is not faster than the CPU. The 8B model makes 5.8 tokens/s on the GPU and 6.6 on the CPU. The profile shows the reason: memory. Both the GPU and the CPU read memory at only about 32 GB/s on this system under Linux. The same machine reads 115 GB/s in macOS (12 threads). 4.6 GB of weights at 30 GB/s gives about 6.5 tokens/s, which matches both results. Dispatch overhead is under 10% of the token time. Details: `agx-linux-kit/docs/performance.md`, section "Memory bandwidth".
 - Flash attention does not work yet: the native compiler refuses one instruction in the `flash_attn_f32_f16_aligned` shader ("AGX3 binary packer refused an instruction"). llama.cpp then stops. Use `-fa 0`.
 
 ## Problems found and fixed on the way
