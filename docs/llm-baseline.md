@@ -116,3 +116,37 @@ The prompt gap is the matrix-multiply shader. Two ways to close it:
 2. **A llama.cpp matmul shader tuned for AGX** without cooperative matrix (register tiling with subgroup shuffles instead of shared memory). Smaller (1 to 2 weeks), stays in llama.cpp, no Mesa change, but it has to be maintained against upstream.
 
 Neither is done yet.
+
+### Box 1: medium tile tuned for the M3 (2026-10-27)
+
+`GGML_VK_HK_MWARP="BLOCK,BM,BN,BK,WM,WN,WMITER,TM,TN,TK,WARP"` (in `llm/llama-vk-honeykrisp-test-switches.patch`) replaces the medium `mul_mm` tile on Honeykrisp; the quantized path keeps BK at 32 or more (its loaders read whole 32-element blocks; BK 16 failed 5 MUL_MAT tests). No new shader: the tile is a set of specialization constants of the existing `mul_mm.comp`.
+
+Sweep, 8B Q4_0 pp512 (fa 1, ub 512, 2 runs each), default `128,64,64,32,32,32,2,4,2,1,32` = 169.9:
+
+| Tile | pp512 |
+|---|---|
+| `128,64,64,32,32,32,2,4,4,1,32` | 169.5 |
+| `128,64,64,32,32,32,1,8,4,1,32` | 166.5 |
+| `128,64,128,32,32,64,2,4,4,1,32` | 196.2 |
+| `128,128,64,32,64,32,2,4,4,1,32` | 202.0 |
+| `128,128,64,16,64,32,2,4,4,1,32` | 203.5 (BK 16 is not valid for the quantized path) |
+| `128,128,64,16,64,32,4,2,4,1,32` | 203.6 |
+| `128,128,64,16,64,32,2,8,2,1,32` | 199.8 |
+| `256,128,128,32,64,32,2,4,4,1,32` | 202.4 |
+| `256,256,64,16,64,32,2,4,4,1,32` | 190.4 |
+| `128,128,128,16,64,64,2,4,4,1,32` | 160.2 |
+| `128,128,128,16,64,64,2,8,4,1,32` | 182.1 |
+| `128,128,64,8,64,32,2,4,4,1,32` | 175.0 |
+
+The gain comes from an 8 x 8 output tile per thread (64 accumulators) with BM 128, BN 64: fewer shared-memory loads per FMA. Larger tiles per thread or per workgroup are slower (register pressure, occupancy).
+
+Chosen: `GGML_VK_HK_MWARP=128,128,64,16,64,32,2,4,4,1,32` (quantized path BK 32). Results, 3 runs each, 0 GPU faults:
+
+| Check | Default tile | New tile |
+|---|---|---|
+| `test-backend-ops -o MUL_MAT` (f32, f16, q4_0, q4_1, q5_0, q5_1, q8_0, q4_K, q5_K, q6_K, mxfp4) | 1275 / 1275 pass | 1275 / 1275 pass |
+| 8B Q4_0 pp512 / tg128 | 169.8 / 26.3 | **201.9** / 26.2 |
+| 8B Q4_K_M pp512 | 150.2 | **169.4** |
+| 40-token text, 8B Q4_K_M | `3fed9a1f` | `3fed9a1f` (same) |
+
+Found on the way: the full `test-backend-ops -o MUL_MAT` stops with both tiles, because Mesa cannot compile `mul_mat_vec_q3_k_f32_f32` (`hk: vkCreateComputePipelines ... VK_ERROR_UNKNOWN`). Q3_K models will fail on this GPU until that is fixed.

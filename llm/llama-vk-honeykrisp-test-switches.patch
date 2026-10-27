@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 14b2cf384..94bc8dae1 100644
+index 14b2cf384..5d005183f 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 @@ -670,7 +670,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
@@ -11,7 +11,33 @@ index 14b2cf384..94bc8dae1 100644
          pipeline->name.rfind("matmul", 0) == 0 &&
          pipeline->name.find("bf16") == std::string::npos &&
          pipeline->name.find("q8_1") == std::string::npos) {
-@@ -4869,6 +4869,13 @@ vk_device ggml_vk_get_device(size_t idx) {
+@@ -1874,6 +1874,25 @@ void ggml_vk_load_shaders(vk_device& device, vk_pipeline requested) {
+             }
+         }
+ 
++        // Test switch (M3 experiment): GGML_VK_HK_MWARP="BLOCK,BM,BN,BK,WM,WN,WMITER,TM,TN,TK,WARP"
++        // replaces the medium tile on Honeykrisp (quantized path with this BK, float path with BK 16).
++        if (device->driver_id == vk::DriverId::eMesaHoneykrisp && getenv("GGML_VK_HK_MWARP")) {
++            std::vector<uint32_t> w;
++            std::stringstream ss(getenv("GGML_VK_HK_MWARP"));
++            for (std::string tok; std::getline(ss, tok, ',');) {
++                w.push_back((uint32_t)std::stoul(tok));
++            }
++            if (w.size() == 11) {
++                m_warptile_mmq = w;
++                // Quantized loaders read whole 32-element blocks: BK below 32 gives wrong results.
++                m_warptile_mmq[3] = std::max(w[3], 32u);
++                m_warptile = w;
++                m_warptile[3] = 16;
++                m_mmq_wg_denoms = m_wg_denoms = { w[1], w[2], 1 };
++                std::cerr << "ggml_vulkan: Honeykrisp medium tile override " << getenv("GGML_VK_HK_MWARP") << std::endl;
++            }
++        }
++
+         const bool use_cm1_int = device->coopmat_int_support &&
+                                  (device->architecture == AMD_RDNA3 || device->architecture == AMD_RDNA4);
+ 
+@@ -4869,6 +4888,13 @@ vk_device ggml_vk_get_device(size_t idx) {
                  device->mul_mat_id_m[i] = true;
                  device->mul_mat_id_s[i] = false;
              }
