@@ -150,3 +150,17 @@ Chosen: `GGML_VK_HK_MWARP=128,128,64,16,64,32,2,4,4,1,32` (quantized path BK 32)
 | 40-token text, 8B Q4_K_M | `3fed9a1f` | `3fed9a1f` (same) |
 
 Found on the way: the full `test-backend-ops -o MUL_MAT` stops with both tiles, because Mesa cannot compile `mul_mat_vec_q3_k_f32_f32` (`hk: vkCreateComputePipelines ... VK_ERROR_UNKNOWN`). Q3_K models will fail on this GPU until that is fixed.
+
+### Box 2, first part (2026-10-27 08:40 to 08:53, stopped)
+
+8B Q4_0 pp512, fa 1, ub 512, 2 runs each, with the box 1 tile:
+
+| Setting | pp512 |
+|---|---|
+| Box 1 tile (BK roll on, the Honeykrisp default) | 201.97 |
+| Box 1 tile, `GGML_VK_HK_NOROLL=1` | 182.13 |
+| BK 64, roll on | 131.43 |
+| BK 64, roll off | GPU fault at 08:52:39 (write to an unmapped address, the same kind as the small-tile fault); do not run again |
+| Box 1 tile + large tile allowed, and `4,2,4` BK 32 | 97.5 and 102.1 ± 8.8: not valid, the M3 ran on battery (AC offline, "Discharging") or right after the fault |
+
+The work stopped at 08:53 under the charger rule. The best result stays 201.9 (box 1).
