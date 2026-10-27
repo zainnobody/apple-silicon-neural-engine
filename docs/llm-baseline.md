@@ -21,7 +21,7 @@ Correctness: the same prompt at temperature 0 gives the same 40 tokens on the GP
 ## What the numbers say
 
 - Prompt processing: the GPU is 1.9 to 2.4 times faster than the CPU.
-- Token generation: the GPU is not faster than the CPU. The 8B model makes 5.8 tokens/s on the GPU and 6.6 on the CPU. Memory bandwidth (about 150 GB/s) would allow more than 25 tokens/s for 4.6 GB of weights, so the limit is per-dispatch overhead in the driver and firmware, not memory. Other Asahi machines show the same pattern (llama.cpp issue 10982: decode limited by dispatch wait).
+- Token generation: the GPU is not faster than the CPU. The 8B model makes 5.8 tokens/s on the GPU and 6.6 on the CPU. The profile shows the reason: memory. Both the GPU and the CPU read memory at only about 32 GB/s on this system (published: 150 GB/s). 4.6 GB of weights at 30 GB/s gives about 6.5 tokens/s, which matches both results. Dispatch overhead is under 10% of the token time. Details: `agx-linux-kit/docs/performance.md`, section "Memory bandwidth".
 - Flash attention does not work yet: the native compiler refuses one instruction in the `flash_attn_f32_f16_aligned` shader ("AGX3 binary packer refused an instruction"). llama.cpp then stops. Use `-fa 0`.
 
 ## Problems found and fixed on the way
@@ -33,5 +33,5 @@ Correctness: the same prompt at temperature 0 gives the same 40 tokens on the GP
 ## Next steps
 
 1. Find the instruction that the compiler refuses in the flash-attention shader. Report it with the upstream draft.
-2. Measure where decode time goes (per-dispatch submit and wait). Try llama.cpp options that reduce dispatches, and compare with the M2 Ultra numbers in issue 10982.
+2. Find why memory runs at about 32 GB/s under Linux (probably a low memory performance state). Measure the same test in macOS for the reference. If the full bandwidth comes back, token generation could reach about 25 tokens/s for the 8B model.
 3. Run the same models with Metal on macOS for the Linux vs macOS comparison (macOS stays offline; copy the models over the local link).
