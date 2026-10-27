@@ -2,7 +2,7 @@
 
 Plan and work notes for the Apple Neural Engine (ANE) on Linux, with local LLMs as the goal. The first test machine is the MacBook Pro 16-inch M3 Pro (Mac15,7, J516s, SoC T6030, ANE generation H15).
 
-Status 2026-10-26: no ANE code runs on the test machine. Stage 0 done: local LLMs run on the GPU with llama.cpp and Vulkan (Llama 3.1 8B: 125 tokens/s prompt, 5.8 tokens/s generation; the CPU makes 6.6). See `docs/llm-baseline.md`.
+Status 2026-10-26: no ANE code runs on the test machine. Stage 0 done: local LLMs run on the GPU with llama.cpp and Vulkan (Llama 3.1 8B: 150 tokens/s prompt, 22.7 tokens/s generation; the CPU makes 25.1. Before the memory floor patch: 5.8 and 6.6). See `docs/llm-baseline.md`.
 
 ## Findings
 

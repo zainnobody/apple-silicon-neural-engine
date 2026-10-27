@@ -18,6 +18,21 @@ An earlier CPU-only run (16:30) gave 163.41 / 15.30 (3B) and 68.19 / 6.72 (8B). 
 
 Correctness: the same prompt at temperature 0 gives the same 40 tokens on the GPU and on the CPU (`llm/stage0.sh check`, CHECK_SAME). The kernel log has no GPU fault, firmware halt or refused submit during the runs.
 
+## After the memory floor fix (2026-10-26 20:43)
+
+Same tools and models. Kernel 7.2.11-m3gpu+ with `agx-linux-kit/patches/t6030-pmp-memory-floor.patch`. Memory now reads at 123 GB/s (CPU, P cores) and 130 GB/s (GPU), up from about 32 GB/s.
+
+| Model | Backend | pp512 (tokens/s) | tg128 (tokens/s) | tg128 before |
+|---|---|---|---|---|
+| Llama 3.2 3B Q4_K_M | GPU (Vulkan) | 356.30 | 48.06 | 13.49 |
+| Llama 3.2 3B Q4_K_M | CPU | 169.02 | 55.74 | 13.68 |
+| Llama 3.1 8B Q4_K_M | GPU (Vulkan) | 149.89 | 22.66 | 5.76 |
+| Llama 3.1 8B Q4_K_M | CPU | 70.59 | 25.07 | 6.59 |
+
+Token generation is now 3.5 to 4 times faster. GPU and CPU text still match (CHECK_SAME). The kernel log has no GPU fault, firmware halt or refused submit. The CPU is still a little faster than the GPU for token generation. The next limit for the GPU is the shader code, not the memory.
+
+The sections below describe the state before the fix.
+
 ## What the numbers say
 
 - Prompt processing: the GPU is 1.9 to 2.4 times faster than the CPU.
@@ -33,5 +48,5 @@ Correctness: the same prompt at temperature 0 gives the same 40 tokens on the GP
 ## Next steps
 
 1. Find the instruction that the compiler refuses in the flash-attention shader. Report it with the upstream draft.
-2. Find why memory runs at about 32 GB/s under Linux (probably a low memory performance state). Measure the same test in macOS for the reference. If the full bandwidth comes back, token generation could reach about 25 tokens/s for the 8B model.
+2. Done: memory ran at about 32 GB/s because no driver requested the PMP memory floor. With the patch, the 8B model makes 22.7 (GPU) and 25.1 (CPU) tokens/s.
 3. Run the same models with Metal on macOS for the Linux vs macOS comparison (macOS stays offline; copy the models over the local link).
