@@ -6,6 +6,8 @@ Status 2026-10-26: no ANE code runs on the test machine. Stage 0 done: local LLM
 
 Status 2026-10-27: Stage 1 data is in our macOS ADT dump (`docs/research-2026-10-27.md`). Stage 2 is drafted offline, not tested: a `t6030` ANE node, a probe-only module and a test plan (`docs/stage2-t6030-node.md`, `docs/stage2-test-plan.md`). Main finding: on T6030 the ANE has one real PMGR power domain, `ps_ane_sys`. The ADT sub-domains are virtual.
 
+Window 2026-10-27 11:53: the probe powered `ane_sys` on and off 5 times without error, then the M3 reset (PMU boot error, no panic). Most likely cause: the PMP got no PTD request for the ANE (bit 5). Next: a PMP report entry for the ANE, then one cycle. See `docs/stage2-window-result-2026-10-27.md`.
+
 ## Findings
 
 | Item | Result | Source |
@@ -59,6 +61,7 @@ The ANE has value for low power and for prefill of small, fixed-shape models. It
 | `patches/` | Kernel patches: 0001 DT node, 0002 probe-only driver (`drivers/accel/ane/ane_t6030_probe.c`) |
 | `probe/` | The probe-only driver as an out-of-tree module for the running kernel |
 | `tools/make-ane-test-dtb.py` | Builds the stage 2 test DTB from the installed DTB; fails if any line is removed |
+| `docs/stage2-window-result-2026-10-27.md` | Result of the 11:53 window: reset after the power cycles, evidence, cause, next step |
 | `docs/stage2-reboot-window.md` | 15-minute reboot window runbook with exact commands (not run) |
 | `docs/stage3-protocol-check.md` | H14 against H16 boot protocol comparison; verdict PARTLY |
 | `patches/drafts/h15-boot-first-leg.patch` | Draft H15 first-leg boot module (CPU release, READY). Not built against a kernel; needs an m1n1 preload reservation first |

@@ -2,6 +2,9 @@
 # ANE stage 2 reboot window, part 2: run as root in the ANE test boot.
 #   sudo ~/window/ane-check.sh [--no-peek]
 # Phase 1: 5 genpd power cycles of ane_sys (cycles=5 hold_ms=200), no engine access.
+# Since the 11:53 window: phase 1 needs a PMP report entry for the ANE (genpd
+# "pmp-ane"). Without it the PMP gets no request, and the M3 reset after the
+# cycles (docs/stage2-window-result-2026-10-27.md).
 # Phase 2: only if phase 1 passes: 1 cycle with peek=7, three engine READS
 #          (CPU_CONTROL, CPU_STATUS, RVBAR). No engine or PMGR writes anywhere.
 # Writes ~/window/ane-check-<time>.log and ends with ANE_CHECK PASS or FAIL.
@@ -10,7 +13,8 @@ set -uo pipefail
 U=user
 H=/home/$U
 KREL=7.2.11-m3gpu+
-MOD=$H/ane-stage2/probe/ane_t6030_probe.ko
+# SELinux: insmod cannot load a module from /home (user_home_t). ane-boot.sh installs it here.
+MOD=/lib/modules/$KREL/ane-test/ane_t6030_probe.ko
 MOD_SHA=302876ce87f6c78397ce62f15fae23501700aecee9414aff325562d47d0ab8e5
 STAGEE_SHA=f3197272d588f4b0a037c5f81f0cfb2c36dfc6c7398a4205910ed8b9cbaa0725
 GD=/sys/kernel/debug/pm_genpd
@@ -48,6 +52,9 @@ lsmod | grep -q '^ane_t6030_probe' && { echo "note: module was loaded; unloading
 early="$(dmesg | grep -iE 'ane|pmgr|genpd' | grep -iE "$ERR" || true)"
 [ -z "$early" ] && ok "no ANE, PMGR or genpd errors since boot" || { echo "WARN: earlier boot messages:"; echo "$early"; }
 echo "ane_sys before: $(state)"
+[ -d "$GD/pmp-ane" ] && ok "PMP report entry pmp-ane exists" \
+	|| bad "no PMP report entry pmp-ane: an unreported ANE power-up reset the M3 at 11:53; not loading"
+dmesg | grep "PMU logged" || true
 sync
 
 if [ "$pre_fail" != 0 ]; then

@@ -1,6 +1,8 @@
 # ANE reboot window runbook (about 15 minutes)
 
-Status 2026-10-27: prepared, not run. Run it only after the user says go in the coordinator session. It is the compressed form of `stage2-test-plan.md` (steps B0 to B13 and F1 to F7). Read that file for the reasons and the full rollback.
+Status 2026-10-27 12:30: ran at 11:53. Phase 1 power cycles completed, then the M3 reset (PMU boot error). Cause and next step: `stage2-window-result-2026-10-27.md`. Do not run phase 1 again without a PMP report entry for the ANE; `ane-check.sh` now refuses it.
+
+Original status: prepared, not run. Run it only after the user says go in the coordinator session. It is the compressed form of `stage2-test-plan.md` (steps B0 to B13 and F1 to F7). Read that file for the reasons and the full rollback.
 
 ## Already done (no root, nothing installed)
 

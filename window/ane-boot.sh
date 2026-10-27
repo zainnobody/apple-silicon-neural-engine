@@ -24,6 +24,8 @@ INST_DTB_SHA=18baac96873fabed31c1eca3a2495dd2ea534067120dddf71d373f1345acd47c
 TDIR=$H/ane-stage2/dtbs-ane
 TEST_DTB_SHA=d3bd370c96378e7a990b75b0085fb1fc15e1456493f602356fc237820eeaac8c
 MOD=$H/ane-stage2/probe/ane_t6030_probe.ko
+# SELinux: insmod cannot load from /home, so the module is installed here.
+MODDST=/lib/modules/$KREL/ane-test/ane_t6030_probe.ko
 MOD_SHA=302876ce87f6c78397ce62f15fae23501700aecee9414aff325562d47d0ab8e5
 STAGEE_SHA=f3197272d588f4b0a037c5f81f0cfb2c36dfc6c7398a4205910ed8b9cbaa0725
 # shellcheck disable=SC2054  # the commas are part of each option
@@ -46,6 +48,7 @@ bad() { echo "FAIL: $*"; fail=1; }
 if [ "$MODE" = "--undo" ]; then
 	systemctl disable ane-window-restore.service 2>/dev/null || true
 	rm -f "$UNIT" "$RESTORE"; systemctl daemon-reload
+	rm -rf "$(dirname "$MODDST")"
 	cp -f "$ESP/boot.bin.stageE" "$ESP/boot.bin.new"; sync
 	mv -f "$ESP/boot.bin.new" "$ESP/boot.bin"; sync
 	[ "$(sha "$ESP/boot.bin")" = "$STAGEE_SHA" ] && echo "UNDONE: boot.bin is stageE, restore unit removed" || { echo "UNDO FAILED: boot.bin is not stageE"; exit 1; }
@@ -151,6 +154,10 @@ WantedBy=sysinit.target
 EOF
 systemctl daemon-reload
 systemctl enable ane-window-restore.service
+
+echo "== Module for insmod (SELinux label modules_object_t)"
+install -D -m 644 "$MOD" "$MODDST"; restorecon "$MODDST"
+[ "$(sha "$MODDST")" = "$MOD_SHA" ] && ls -Z "$MODDST" || { echo "FAIL: installed module hash differs"; exit 1; }
 
 echo "== Switch"
 cp -f "$ESP/boot.bin.ane" "$ESP/boot.bin.new"; sync; mv -f "$ESP/boot.bin.new" "$ESP/boot.bin"; sync
