@@ -4,6 +4,8 @@ Plan and work notes for the Apple Neural Engine (ANE) on Linux, with local LLMs 
 
 Status 2026-10-26: no ANE code runs on the test machine. Stage 0 done: local LLMs run on the GPU with llama.cpp and Vulkan (Llama 3.1 8B: 150 tokens/s prompt, 22.7 tokens/s generation; the CPU makes 25.1. Before the memory floor patch: 5.8 and 6.6). See `docs/llm-baseline.md`.
 
+Status 2026-10-27: Stage 1 data is in our macOS ADT dump (`docs/research-2026-10-27.md`). Stage 2 is drafted offline, not tested: a `t6030` ANE node, a probe-only module and a test plan (`docs/stage2-t6030-node.md`, `docs/stage2-test-plan.md`). Main finding: on T6030 the ANE has one real PMGR power domain, `ps_ane_sys`. The ADT sub-domains are virtual.
+
 ## Findings
 
 | Item | Result | Source |
@@ -50,3 +52,10 @@ The ANE has value for low power and for prefill of small, fixed-shape models. It
 | `llm/stage0.sh` | Stage 0: build llama.cpp (Vulkan and CPU-only), download two test models, run `llama-bench` on the GPU and the CPU, check that GPU and CPU text match |
 | `docs/llm-baseline.md` | Stage 0 results: GPU and CPU numbers, output check, problems found |
 | `docs/research-2026-10-26.md` | Research notes with sources: driver status, H15 facts, compiler problem, LLM speed data, staged plan |
+| `docs/research-2026-10-27.md` | Stage 1 data from our macOS ADT dump; outside work on M3 and M4 |
+| `docs/stage2-t6030-node.md` | Stage 2 data: absolute addresses, interrupts, DART, PMGR domain mapping, driver comparison, checks done, open questions |
+| `docs/stage2-test-plan.md` | Stage 2 test plan with gates, steps and rollback (not run) |
+| `dts/t6030-ane.dtsi` | Draft ANE node and ANE DARTs for the kernel source tree |
+| `patches/` | Kernel patches: 0001 DT node, 0002 probe-only driver (`drivers/accel/ane/ane_t6030_probe.c`) |
+| `probe/` | The probe-only driver as an out-of-tree module for the running kernel |
+| `tools/make-ane-test-dtb.py` | Builds the stage 2 test DTB from the installed DTB; fails if any line is removed |

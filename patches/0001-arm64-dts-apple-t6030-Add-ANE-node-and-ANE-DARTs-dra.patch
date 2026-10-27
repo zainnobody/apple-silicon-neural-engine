@@ -1,0 +1,121 @@
+From 3f61f72852c6f12f4ce34badd2900b3048b1f45e Mon Sep 17 00:00:00 2001
+From: Zain Ali <112139252+zainnobody@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:12:49 -0700
+Subject: [PATCH 1/2] arm64: dts: apple: t6030: Add ANE node and ANE DARTs
+ (draft)
+
+Add the Neural Engine node (disabled) and its three DARTs (disabled).
+Values come from the macOS ADT nodes ane@F8000000 and dart-ane@F9800000;
+the arm-io ranges add 0x2_1000_0000.
+
+The ADT power gate of the ANE (0x1a4, "ANE-SYS-V") is virtual, with
+parent ANE_SYS, which is the existing ps_ane_sys at PMGR +0x498. The
+ADT sub-domains ANE_MPM, ANE_CPU, ANE_TD and ANE_BASE are virtual too,
+so no new PMGR domains are added. The five PMGR windows in the ADT
+node are left out: Linux drives PMGR through genpd only.
+
+Stage 2 draft for private testing. Not for upstream.
+---
+ arch/arm64/boot/dts/apple/t6030-ane.dtsi | 80 ++++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6030.dtsi     |  1 +
+ 2 files changed, 81 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6030-ane.dtsi
+
+diff --git a/arch/arm64/boot/dts/apple/t6030-ane.dtsi b/arch/arm64/boot/dts/apple/t6030-ane.dtsi
+new file mode 100644
+index 0000000..792c953
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6030-ane.dtsi
+@@ -0,0 +1,80 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple Neural Engine on the T6030 "M3 Pro" (H15, 16 cores).
++ * Stage 2 draft of the ane-linux plan: engine window, interrupt, power
++ * domain and DARTs. Include it at the end of t6030.dtsi, after
++ * t6030-pmgr.dtsi.
++ *
++ * Source: macOS ADT nodes ane@F8000000 and dart-ane@F9800000. The
++ * arm-io ranges add 0x2_1000_0000 to every ADT reg address.
++ *
++ * Power: the ADT power gate 0x1a4 is "ANE-SYS-V". The ADT PMGR device
++ * table marks it virtual (flag 0x10) with parent ANE_SYS (0x82). ANE_SYS
++ * is the only ANE entry with a real power-state register: PMGR +0x498,
++ * which is ps_ane_sys. ANE_MPM, ANE_CPU, ANE_TD and ANE_BASE are also
++ * virtual on T6030, so they get no Linux domain. Do not add domains at
++ * PMGR +0xc000: that block has no ANE power-state register on T6030.
++ *
++ * The ADT ane node has five more reg windows. All five are PMGR
++ * windows that macOS uses for direct power control:
++ *   0x3_5070_0000 0x18000, 0x3_5072_4000 0x4000,
++ *   0x3_503c_0000 0x24000, 0x2_1100_0000 0xf74000,
++ *   0x3_642c_8000 0x4000.
++ * Linux leaves them out: genpd owns PMGR.
++ */
++
++&{/soc} {
++	/*
++	 * ADT dart-ane: dart,t8110, dart-id 0x1d, sid-count 16 (SID 15 is
++	 * bypass), page-size 0x4000, vm-base 0x100_0000_0000, vm-size
++	 * 0x300_0000_0000. Four instances: DART 0 (LLT), DART 1 (BRD),
++	 * DART 2 (BWR) and DAPF 0 (LLT) at 0x3_0980_4000. The ADT gives the
++	 * DART no power gate; ps_ane_sys is an assumption.
++	 * Disabled until stage 2b.
++	 */
++	ane_dart0: iommu@309800000 {
++		compatible = "apple,t6030-dart", "apple,t8110-dart";
++		reg = <0x3 0x09800000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 577 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_ane_sys>;
++		status = "disabled";
++	};
++
++	ane_dart1: iommu@309810000 {
++		compatible = "apple,t6030-dart", "apple,t8110-dart";
++		reg = <0x3 0x09810000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 577 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_ane_sys>;
++		status = "disabled";
++	};
++
++	ane_dart2: iommu@309820000 {
++		compatible = "apple,t6030-dart", "apple,t8110-dart";
++		reg = <0x3 0x09820000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 577 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_ane_sys>;
++		status = "disabled";
++	};
++
++	/*
++	 * One interrupt (ADT 0x240). The ADT has pre-loaded = 1 and no
++	 * firmware-name: iBoot loads the "anef" image. Stage 2 adds no
++	 * iommus, no mailbox and no memory-region.
++	 */
++	ane: ane@308000000 {
++		compatible = "apple,t6030-ane";
++		reg = <0x3 0x08000000 0x0 0x2000000>;
++		reg-names = "engine";
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 576 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "ane";
++		power-domains = <&ps_ane_sys>;
++		status = "disabled";
++	};
++};
+diff --git a/arch/arm64/boot/dts/apple/t6030.dtsi b/arch/arm64/boot/dts/apple/t6030.dtsi
+index 8f2646c..9b06a23 100644
+--- a/arch/arm64/boot/dts/apple/t6030.dtsi
++++ b/arch/arm64/boot/dts/apple/t6030.dtsi
+@@ -1614,6 +1614,7 @@
+ };
+ 
+ #include "t6030-pmgr.dtsi"
++#include "t6030-ane.dtsi"
+ #include "t6030-gpu.dtsi"
+ #include "t6030-usb4.dtsi"
+ #include "t6030-dcp.dtsi"
