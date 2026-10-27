@@ -1,0 +1,27 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 14b2cf384..94bc8dae1 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -670,7 +670,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
+ 
+ #if VK_HEADER_VERSION >= 287
+     // Roll the mul_mm BK loop on Asahi Linux. Skip bf16 and the mul_mmq pipelines.
+-    if (device->driver_id == vk::DriverId::eMesaHoneykrisp &&
++    if (device->driver_id == vk::DriverId::eMesaHoneykrisp && !getenv("GGML_VK_HK_NOROLL") &&
+         pipeline->name.rfind("matmul", 0) == 0 &&
+         pipeline->name.find("bf16") == std::string::npos &&
+         pipeline->name.find("q8_1") == std::string::npos) {
+@@ -4869,6 +4869,13 @@ vk_device ggml_vk_get_device(size_t idx) {
+                 device->mul_mat_id_m[i] = true;
+                 device->mul_mat_id_s[i] = false;
+             }
++            // Test switch (M3 experiment): GGML_VK_HK_TILES lists the tiles to allow, e.g. "lms".
++            if (device->driver_id == vk::DriverId::eMesaHoneykrisp && getenv("GGML_VK_HK_TILES")) {
++                const char * t = getenv("GGML_VK_HK_TILES");
++                device->mul_mat_l[i] = device->mul_mat_id_l[i] = strchr(t, 108) != nullptr;
++                device->mul_mat_m[i] = device->mul_mat_id_m[i] = strchr(t, 109) != nullptr;
++                device->mul_mat_s[i] = device->mul_mat_id_s[i] = strchr(t, 115) != nullptr;
++            }
+ #endif
+ 
+             device->mul_mat_l_int[i]    = device->mul_mat_l[i];
