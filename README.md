@@ -59,3 +59,7 @@ The ANE has value for low power and for prefill of small, fixed-shape models. It
 | `patches/` | Kernel patches: 0001 DT node, 0002 probe-only driver (`drivers/accel/ane/ane_t6030_probe.c`) |
 | `probe/` | The probe-only driver as an out-of-tree module for the running kernel |
 | `tools/make-ane-test-dtb.py` | Builds the stage 2 test DTB from the installed DTB; fails if any line is removed |
+| `docs/stage2-reboot-window.md` | 15-minute reboot window runbook with exact commands (not run) |
+| `docs/stage3-protocol-check.md` | H14 against H16 boot protocol comparison; verdict PARTLY |
+| `patches/drafts/h15-boot-first-leg.patch` | Draft H15 first-leg boot module (CPU release, READY). Not built against a kernel; needs an m1n1 preload reservation first |
+| `stage4/` | Harness and model that compile an `h15g` program on the M5 host Mac |

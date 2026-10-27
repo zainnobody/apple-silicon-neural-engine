@@ -41,7 +41,7 @@ This DTB change can share one boot-file window with the Touch ID SEP DTB and the
 | B8 | User types the sudo password (read only) | `sudo grep -i ane /sys/kernel/debug/pm_genpd/pm_genpd_summary` and `sudo cat /sys/kernel/debug/pm_genpd/ane_sys/current_state`. Record the state before the module loads. | None. This only records. |
 | B9 | User types the sudo password, user says go | `sudo insmod ~/ane-stage2/probe/ane_t6030_probe.ko`. Defaults: 1 cycle, 100 ms, peek off. Then `dmesg | tail -20` and repeat B8. | The machine freezes: F7. |
 | B10 | User types the sudo password | `sudo rmmod ane_t6030_probe`, then `sudo insmod ... cycles=5 hold_ms=200`. Repeat B8. | Any `power on failed` or `power off failed` line, or a `pmgr-pwrstate` timeout. Stop and record. |
-| B11 | Separate go from the user | `sudo rmmod ane_t6030_probe`, then `sudo insmod ... peek=1`. This reads one engine register (ASC `CPU_CONTROL`, engine +0x140_0044) while `ane_sys` is on. | The machine freezes: F7. A value of `0xffffffff` or an SError in `dmesg`: stop, do not repeat. |
+| B11 | Separate go from the user | `sudo rmmod ane_t6030_probe`, then `sudo insmod ... peek=7`. This reads three engine registers while `ane_sys` is on: ASC `CPU_CONTROL` (+0x140_0044), `CPU_STATUS` (+0x140_0048) and `RVBAR` (+0x105_0000, 64 bit). No writes. | The machine freezes: F7. A value of `0xffffffff` or an SError in `dmesg`: stop, do not repeat. |
 | B12 | User types the sudo password | `sudo rmmod ane_t6030_probe`. Repeat B8: `ane_sys` must read off. | None. |
 | B13 | User decides | Keep the test DTB for stage 2b, or roll back with `m3gpu-boot use-stageE` and one reboot. | None. |
 
@@ -50,7 +50,7 @@ This DTB change can share one boot-file window with the Touch ID SEP DTB and the
 - B9: `dmesg` shows `cycle 1: ane_sys on`, `cycle 1: ane_sys released`, `probe done: 1 cycle(s), peek=0`. B8 after B9 shows `ane_sys` off.
 - B10: five clean cycles, no timeout, `ane_sys` off at the end.
 - No hang, no SError, no new kernel warning.
-- B11 (optional): a value that is not `0xffffffff`. RUN (bit 4) is expected to be 0, because the ANE CPU starts in reset after a power cycle. A RUN of 1 would mean firmware runs (see question Q2).
+- B11 (optional): values that are not all ones. RUN (bit 4 of `CPU_CONTROL`) is expected to be 0. A RUN of 1 means firmware runs. `RVBAR` bit 0 = 1 with the value `0x...0100_0000_0001` means iBoot latched the firmware entry at IOVA 0x100_0000_0000 and the state survived, which is evidence for an iBoot preload on the Linux boot (question Q2). Bit 0 = 0 is not proof of the opposite: a power cycle of `ane_sys` can clear the latch.
 
 ## Rollback
 

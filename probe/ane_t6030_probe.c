@@ -7,8 +7,9 @@
  * ANE_CPU) are virtual. The platform core attaches ane_sys and powers it
  * on before probe. The driver then runs runtime PM on and off cycles
  * through genpd and leaves the domain off. It never writes an engine or
- * PMGR register and never starts firmware. With peek=1 it reads one
- * register, the ASC wrapper CPU_CONTROL word, while the domain is on.
+ * PMGR register and never starts firmware. peek is a bit mask of
+ * engine reads done while the domain is on: bit 0 CPU_CONTROL, bit 1
+ * CPU_STATUS, bit 2 RVBAR.
  */
 
 #include <linux/bits.h>
@@ -20,18 +21,27 @@
 #include <linux/pm_runtime.h>
 
 /*
- * Engine-relative ASC wrapper CPU_CONTROL, RUN is bit 4. Same offset as
- * on T602x, where the DART also sits at engine +0x1800000 as on T6030.
- * Not yet checked on H15, so peek is off by default.
+ * Engine-relative ASC registers. CPU_CONTROL (RUN is bit 4) and
+ * CPU_STATUS sit in the ASC wrapper, RVBAR in the ASC core; bit 0 of
+ * RVBAR means latched. Same offsets on T602x and on the public H16
+ * bring-up code; the T602x DART also sits at engine +0x1800000 as on
+ * T6030. Not yet checked on H15, so peek is off by default.
  */
 #define ANE_T6030_ASC_CPU_CONTROL	0x1400044
+#define ANE_T6030_ASC_CPU_STATUS	0x1400048
+#define ANE_T6030_ASC_RVBAR		0x1050000
 #define ANE_T6030_ASC_CPU_RUN		BIT(4)
+
+#define ANE_T6030_PEEK_CTL		BIT(0)
+#define ANE_T6030_PEEK_STATUS		BIT(1)
+#define ANE_T6030_PEEK_RVBAR		BIT(2)
+#define ANE_T6030_PEEK_ALL		GENMASK(2, 0)
 
 #define ANE_T6030_MAX_CYCLES		10
 
-static bool peek;
-module_param(peek, bool, 0444);
-MODULE_PARM_DESC(peek, "Read ASC CPU_CONTROL once per cycle while powered (default 0)");
+static unsigned int peek;
+module_param(peek, uint, 0444);
+MODULE_PARM_DESC(peek, "Engine reads per cycle while powered: bit 0 CPU_CONTROL, bit 1 CPU_STATUS, bit 2 RVBAR (default 0)");
 
 static unsigned int cycles = 1;
 module_param(cycles, uint, 0444);
@@ -54,11 +64,17 @@ static int ane_t6030_cycle(struct device *dev, void __iomem *engine,
 	}
 	dev_info(dev, "cycle %u: ane_sys on\n", n);
 
-	if (engine) {
+	if (engine && (peek & ANE_T6030_PEEK_CTL)) {
 		ctl = readl(engine + ANE_T6030_ASC_CPU_CONTROL);
 		dev_info(dev, "cycle %u: ASC CPU_CONTROL = %#010x (RUN=%d)\n",
 			 n, ctl, !!(ctl & ANE_T6030_ASC_CPU_RUN));
 	}
+	if (engine && (peek & ANE_T6030_PEEK_STATUS))
+		dev_info(dev, "cycle %u: ASC CPU_STATUS = %#010x\n", n,
+			 readl(engine + ANE_T6030_ASC_CPU_STATUS));
+	if (engine && (peek & ANE_T6030_PEEK_RVBAR))
+		dev_info(dev, "cycle %u: ASC RVBAR = %#018llx\n", n,
+			 readq(engine + ANE_T6030_ASC_RVBAR));
 
 	msleep(hold_ms);
 
@@ -82,6 +98,8 @@ static int ane_t6030_probe(struct platform_device *pdev)
 	if (cycles < 1 || cycles > ANE_T6030_MAX_CYCLES)
 		return dev_err_probe(dev, -EINVAL, "cycles must be 1 to %d\n",
 				     ANE_T6030_MAX_CYCLES);
+	if (peek & ~ANE_T6030_PEEK_ALL)
+		return dev_err_probe(dev, -EINVAL, "peek accepts bits 0 to 2 only\n");
 
 	if (!dev->pm_domain)
 		return dev_err_probe(dev, -ENODEV, "no power domain attached\n");
@@ -104,7 +122,7 @@ static int ane_t6030_probe(struct platform_device *pdev)
 			return ret;
 	}
 
-	dev_info(dev, "probe done: %u cycle(s), peek=%d, no engine or PMGR writes\n",
+	dev_info(dev, "probe done: %u cycle(s), peek=%#x, no engine or PMGR writes\n",
 		 cycles, peek);
 	return 0;
 }

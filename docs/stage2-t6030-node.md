@@ -121,7 +121,7 @@ The `ane_t6021` probe reads the PMGR window directly (`ps_cpu_off`) to check tha
 | Check | Result |
 |---|---|
 | `git apply --check` of both patches on `~/m3gpu/src/linux` | Pass. The tree was not changed. |
-| Module build out of tree, `nice -n 19`, one job, in `~/ane-stage2/probe` | Pass, no warnings, 1.2 s. `vermagic` = `7.2.11-m3gpu+ SMP preempt mod_unload aarch64`. sha256 `1a75b821...`. Not loaded. |
+| Module build out of tree, `nice -n 19`, one job, in `~/ane-stage2/probe` | Pass, no warnings, 1.2 s. `vermagic` = `7.2.11-m3gpu+ SMP preempt mod_unload aarch64`. sha256 `302876ce...` after the `peek` bit-mask change. Not loaded. |
 | Source DTS `t6030-j516s.dts` with the include, kernel dtc (`build-linux/scripts/dtc/dtc`) | Pass. The ANE node has one power domain. Stock dtc 1.8.1 cannot compile the source tree (the GPU node has float values). |
 | Test DTB from the installed DTB (`make-ane-test-dtb.py`, dtc 1.8.1 on the Mac) | 45 lines added, 0 removed. `ane@308000000` is okay, the DARTs are disabled, `ane_sys` gets phandle 0xfb. |
 | Live DT on the M3 | `power-controller@498` label `ane_sys` exists. No `ane` node. |
@@ -132,8 +132,8 @@ The `ane_t6021` probe reads the PMGR window directly (`ps_cpu_off`) to check tha
 | # | Question | Why it matters | How to answer |
 |---|---|---|---|
 | Q1 | What namespace do the ANE `clock-ids` 0x14a..0x14c use? | Possible clock or DVFS needs in Stage 3 | Compare with other nodes' IDs above 0x100 in m1n1 or in the ADT `nco` and `perf-domains` data |
-| Q2 | Does iBoot preload `anef` when it boots m1n1 (the Asahi boot)? | If not, Linux must load the firmware itself, as `ane_t6021` does | Read the ADT `ane` node from m1n1 on a Linux boot (`segment-ranges`, carve-outs), or the m1n1 log |
-| Q3 | Is ANE_SYS enough to make the engine window readable? | Decides if `peek=1` is safe | Run the plan up to step B9 first. Run `peek=1` only with a separate go (step B11). |
+| Q2 | Does iBoot preload `anef` when it boots m1n1 (the Asahi boot)? | If not, Linux must load the firmware itself, as `ane_t6021` does | First evidence: `RVBAR` in step B11. Proof: read the ADT `ane` node from m1n1 on a Linux boot (`segment-ranges`, carve-outs), or the m1n1 log |
+| Q3 | Is ANE_SYS enough to make the engine window readable? | Decides if engine reads (`peek`) are safe | Run the plan up to step B9 first. Run `peek=7` only with a separate go (step B11). |
 | Q4 | ANE_SYS has the virtual parent LW20 and the PMGR flag `notify_pmp`. Does Linux need to tell PMP when ANE_SYS changes? | A power-on can time out, or the PMP can disagree. The kernel already switches `ane_sys` today (unused-domain power-off at boot) without known problems. | Watch `pmgr-pwrstate` messages in step B9 |
 | Q5 | Which power domain does the ANE DART need? | Needed for stage 2b (DMA) | The ADT gives none. Test with `ps_ane_sys` in stage 2b. |
 | Q6 | DART tunables and DAPF for the ANE are in the ADT but nothing applies them on Linux | Needed before any DMA | Port the m1n1 DAPF and tunable setup for `/arm-io/dart-ane` in stage 2b |

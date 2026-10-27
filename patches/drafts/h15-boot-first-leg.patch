@@ -1,0 +1,644 @@
+diff --git a/ane-linux/probe/Kbuild b/ane-linux/probe/Kbuild
+index bd98c9f..b2761c4 100644
+--- a/ane-linux/probe/Kbuild
++++ b/ane-linux/probe/Kbuild
+@@ -1 +1,2 @@
+ obj-m := ane_t6030_probe.o
++obj-m += ane_t6030_boot.o
+diff --git a/ane-linux/probe/ane_t6030_boot.c b/ane-linux/probe/ane_t6030_boot.c
+new file mode 100644
+index 0000000..73de571
+--- /dev/null
++++ b/ane-linux/probe/ane_t6030_boot.c
+@@ -0,0 +1,631 @@
++// SPDX-License-Identifier: GPL-2.0-only OR MIT
++/*
++ * Apple T6030 (M3 Pro) Neural Engine: opt-in firmware READY handshake.
++ * DRAFT. Nothing in this file has run on silicon, and it has not been
++ * built against a kernel tree. Every H15 assumption is tagged
++ * "H15 ASSUMPTION" so it can be grepped.
++ *
++ * Scope: power ane_sys through genpd, read the ASC state, and, only with
++ * explicit parameters, run the first leg of the H14-proven (T602x)
++ * boot sequence: clear SCRATCH, release the ASC CPU, poll SCRATCH7 for
++ * the READY word. It then STOPS. It publishes no init structure, sends
++ * no wake request, touches no mailbox word, requests no IRQ, starts no
++ * RTKit and loads no firmware file. The firmware that runs is the image
++ * iBoot preloaded (ADT pre-loaded = 1); this module only maps it.
++ *
++ * Why only the first leg: the H14 and H16 public drivers agree on the
++ * CPU release order and on the READY word (0x08042006 in SCRATCH7), and
++ * disagree on or do not derive everything after it. See trackB-report.md.
++ *
++ * Hard rules kept here:
++ *  - power only through genpd (the single real domain, ps_ane_sys);
++ *    the PMGR window is never mapped, so it cannot be written;
++ *  - every engine write sits behind engine_writes=1 (default 0) and
++ *    handshake=1 (default 0) and optin=t6030;
++ *  - the CPU is never touched if CPU_CONTROL RUN is already set;
++ *  - every engine access goes through ane_off_ok(), which refuses the
++ *    H14 fatal read range +0x1854000..+0x1c28000 and the CoreSight
++ *    block at +0x1010000;
++ *  - engine MMIO must be non-posted (checked on the DT node chain);
++ *  - every wait is bounded; there is no unbounded loop;
++ *  - after RUN is written nothing is unwound: mappings, power and the
++ *    module reference stay until reboot (same rule as ane_t6021).
++ *
++ * Needed from the DT (stage 2b, not in the stage 2 test DTB):
++ *  - the three ANE DART nodes enabled and listed in the ane node as
++ *    iommus = <&ane_dart0 0>, <&ane_dart1 0>, <&ane_dart2 0>
++ *    (H15 ASSUMPTION: sid 0, as on T602x; the T6030 ADT lists sid 0
++ *    and 15 with bypass-15);
++ *  - two reserved-memory no-map regions covering the preloaded TEXT
++ *    and DATA images at the physical addresses iBoot used on THIS boot
++ *    (they are not the macOS-boot addresses unless m1n1 shows they are).
++ *
++ * Load order: rmmod ane_t6030_probe first (both match apple,t6030-ane).
++ *
++ *   read only:  insmod ane_t6030_boot.ko optin=t6030 peek=15
++ *   handshake:  insmod ane_t6030_boot.ko optin=t6030 engine_writes=1 \
++ *               handshake=1 seg_text_pa=0x... seg_data_pa=0x...
++ *
++ * No firmware file is read or named. If iBoot did not preload an image
++ * on a Linux boot, this draft refuses (-ENODEV). A Linux-staged image
++ * would use request_firmware() with a file name only and is NOT
++ * implemented here: its patch-replay for H15 is not derived.
++ */
++
++#include <linux/bits.h>
++#include <linux/delay.h>
++#include <linux/dma-map-ops.h>
++#include <linux/err.h>
++#include <linux/io.h>
++#include <linux/iommu.h>
++#include <linux/minmax.h>
++#include <linux/module.h>
++#include <linux/moduleparam.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
++#include <linux/sizes.h>
++#include <linux/string.h>
++#include <linux/types.h>
++
++#define ANE_ENGINE_SIZE		0x2000000
++
++/*
++ * Engine-relative ASC offsets. H15 ASSUMPTION: all of these are the
++ * T602x (H14) values. Evidence for H15: ADT 27.0 lists a wrapper window
++ * at engine+0x1400000 (size 0x6c000) and an RVBAR window at
++ * engine+0x1050000 (size 0x4000), and the ANE DARTs sit at the T602x
++ * offsets. Not measured on H15: the roles of these words.
++ */
++#define ANE_ASC_CPU_CONTROL	0x1400044	/* RUN = BIT(4) */
++#define ANE_ASC_CPU_STATUS	0x1400048
++#define ANE_ASC_RVBAR		0x1050000	/* u64, bit 0 = latched */
++#define ANE_ASC_MBOX_A2I_CTRL	0x1408110	/* read only here */
++#define ANE_ASC_MBOX_I2A_CTRL	0x1408114	/* read only here */
++#define ANE_CPU_RUN		BIT(4)
++
++/*
++ * H15 ASSUMPTION (the largest one): the SCRATCH block is at the T602x
++ * offset. The H16 offset (+0x1880020) lies inside the H14 fatal read
++ * range and is never accessed. The kext row for ane-type 0xc0 would
++ * settle this. Override with scratch0_off once that row is read.
++ */
++#define ANE_SCRATCH0_DEFAULT	0x1840048	/* SCRATCH0..7 = +0x48..+0x64 */
++#define ANE_SCRATCH_N		8
++
++/* H14 values (ane_t6021_boot.h). READY word is also what H16 polls for. */
++#define ANE_BOOT_READY		0x08042006U
++#define ANE_RVBAR_ADDR_MASK	0xff7efffffffff800ULL
++#define ANE_CPU_RUN_RELEASE	0x10U
++
++/* H14 fatal read range plus the CoreSight block. Never touched. */
++#define ANE_FATAL_LO		0x1854000
++#define ANE_FATAL_HI		0x1c28000
++#define ANE_CORESIGHT_LO	0x1010000
++#define ANE_CORESIGHT_HI	0x1020000
++
++/*
++ * Preloaded image geometry from the T6030 ADT segment-ranges (our own
++ * macOS dump): remap IOVAs and sizes. The physical addresses are module
++ * parameters because they are not known for a Linux boot.
++ */
++#define ANE_SEG_TEXT_IOVA	0x10000000000ULL
++#define ANE_SEG_TEXT_SIZE	0xc0000ULL
++#define ANE_SEG_DATA_IOVA	0x100000c0000ULL
++#define ANE_SEG_DATA_SIZE	0x10c000ULL
++#define ANE_DART_PAGE		SZ_16K
++
++static char *optin;
++module_param(optin, charp, 0444);
++MODULE_PARM_DESC(optin, "Must be \"t6030\" or probe returns -EPERM");
++
++static unsigned int peek;
++module_param(peek, uint, 0444);
++MODULE_PARM_DESC(peek, "Read-only bitmask: 1 CPU_CONTROL, 2 CPU_STATUS and RVBAR, 4 mailbox ctrl, 8 SCRATCH0..7 (default 0)");
++
++static bool engine_writes;
++module_param(engine_writes, bool, 0444);
++MODULE_PARM_DESC(engine_writes, "Allow engine register writes (default 0). Needed by handshake=1");
++
++static bool handshake;
++module_param(handshake, bool, 0444);
++MODULE_PARM_DESC(handshake, "Run the READY handshake: map preload, clear SCRATCH, release CPU, poll READY (default 0)");
++
++
++static unsigned long long seg_text_pa;
++module_param(seg_text_pa, ullong, 0444);
++MODULE_PARM_DESC(seg_text_pa, "Physical address of the iBoot-preloaded __TEXT image on this boot (default 0 = refuse)");
++
++static unsigned long long seg_data_pa;
++module_param(seg_data_pa, ullong, 0444);
++MODULE_PARM_DESC(seg_data_pa, "Physical address of the iBoot-preloaded __DATA image on this boot (default 0 = refuse)");
++
++static unsigned int scratch0_off = ANE_SCRATCH0_DEFAULT;
++module_param(scratch0_off, uint, 0444);
++MODULE_PARM_DESC(scratch0_off, "Engine offset of SCRATCH0 (H15 ASSUMPTION default 0x1840048); range checked");
++
++static unsigned int ready_wait_ms = 5000;
++module_param(ready_wait_ms, uint, 0444);
++MODULE_PARM_DESC(ready_wait_ms, "Bounded wait for SCRATCH7 READY after CPU release, 100 to 20000 ms (default 5000)");
++
++struct ane_boot {
++	struct device *dev;
++	void __iomem *eng;
++	struct iommu_domain *dom;
++	u64 seg_pa[2];
++	u64 seg_iova[2];
++	u64 seg_size[2];
++	u64 seg_mapped[2];	/* bytes mapped so far, for unwind */
++	bool cpu_started;
++};
++
++/* One log line per phase, flushed before the next access, so the last
++ * line on the console names the access that hung. Bounded: fewer than
++ * 30 phases in the whole module. */
++static void ane_phase(struct ane_boot *a, const char *what)
++{
++	dev_info(a->dev, "PHASE %s\n", what);
++	msleep(20);
++}
++
++/* The only gate in front of engine MMIO. */
++static bool ane_off_ok(u32 off, u32 len)
++{
++	if (len != 4 && len != 8)
++		return false;
++	if (off & (len - 1))
++		return false;
++	if ((u64)off + len > ANE_ENGINE_SIZE)
++		return false;
++	if (off < ANE_FATAL_HI && (u64)off + len > ANE_FATAL_LO)
++		return false;
++	if (off < ANE_CORESIGHT_HI && (u64)off + len > ANE_CORESIGHT_LO)
++		return false;
++	return true;
++}
++
++static int ane_rd32(struct ane_boot *a, u32 off, u32 *v)
++{
++	if (!ane_off_ok(off, 4)) {
++		dev_err(a->dev, "refused read32 of engine+%#x (fatal or guarded range)\n", off);
++		return -EPERM;
++	}
++	*v = readl(a->eng + off);
++	return 0;
++}
++
++static int ane_rd64(struct ane_boot *a, u32 off, u64 *v)
++{
++	if (!ane_off_ok(off, 8)) {
++		dev_err(a->dev, "refused read64 of engine+%#x (fatal or guarded range)\n", off);
++		return -EPERM;
++	}
++	*v = readq(a->eng + off);
++	return 0;
++}
++
++static int ane_wr32(struct ane_boot *a, u32 off, u32 v)
++{
++	if (!engine_writes) {
++		dev_err(a->dev, "refused write32 to engine+%#x: engine_writes=0\n", off);
++		return -EPERM;
++	}
++	if (!ane_off_ok(off, 4)) {
++		dev_err(a->dev, "refused write32 to engine+%#x (fatal or guarded range)\n", off);
++		return -EPERM;
++	}
++	writel(v, a->eng + off);	/* non-posted mapping, checked at probe */
++	return 0;
++}
++
++/* of_mmio_is_nonposted() is not exported to modules; walk the chain. */
++static bool ane_mmio_nonposted(struct device *dev)
++{
++	struct device_node *np = of_node_get(dev->of_node);
++
++	while (np) {
++		if (of_property_read_bool(np, "nonposted-mmio")) {
++			of_node_put(np);
++			return true;
++		}
++		np = of_get_next_parent(np);
++	}
++	return false;
++}
++
++/* ---- read-only state ---- */
++
++struct ane_state {
++	u32 ctl, status;
++	u64 rvbar;
++	u32 scratch[ANE_SCRATCH_N];
++	u32 a2i, i2a;
++};
++
++static int ane_read_state(struct ane_boot *a, unsigned int mask,
++			  struct ane_state *s)
++{
++	unsigned int i;
++	int ret;
++
++	if (mask & 1) {
++		ane_phase(a, "R1 CPU_CONTROL");
++		ret = ane_rd32(a, ANE_ASC_CPU_CONTROL, &s->ctl);
++		if (ret)
++			return ret;
++		dev_info(a->dev, "CPU_CONTROL = %#010x (RUN=%d)\n", s->ctl,
++			 !!(s->ctl & ANE_CPU_RUN));
++	}
++	if (mask & 2) {
++		ane_phase(a, "R2 CPU_STATUS");
++		ret = ane_rd32(a, ANE_ASC_CPU_STATUS, &s->status);
++		if (ret)
++			return ret;
++		dev_info(a->dev, "CPU_STATUS = %#010x\n", s->status);
++		ane_phase(a, "R2b RVBAR");
++		ret = ane_rd64(a, ANE_ASC_RVBAR, &s->rvbar);
++		if (ret)
++			return ret;
++		dev_info(a->dev, "RVBAR = %#018llx (%slatched)\n", s->rvbar,
++			 (s->rvbar & 1) ? "" : "un");
++	}
++	if (mask & 4) {
++		ane_phase(a, "R3 mailbox ctrl");
++		ret = ane_rd32(a, ANE_ASC_MBOX_A2I_CTRL, &s->a2i);
++		if (ret)
++			return ret;
++		ret = ane_rd32(a, ANE_ASC_MBOX_I2A_CTRL, &s->i2a);
++		if (ret)
++			return ret;
++		dev_info(a->dev, "mailbox A2I_CTRL = %#x I2A_CTRL = %#x\n",
++			 s->a2i, s->i2a);
++	}
++	if (mask & 8) {
++		ane_phase(a, "R4 SCRATCH0..7 (H15 ASSUMPTION: H14 offset)");
++		for (i = 0; i < ANE_SCRATCH_N; i++) {
++			ret = ane_rd32(a, scratch0_off + 4 * i, &s->scratch[i]);
++			if (ret)
++				return ret;
++		}
++		dev_info(a->dev, "SCRATCH0..7 = %08x %08x %08x %08x %08x %08x %08x %08x\n",
++			 s->scratch[0], s->scratch[1], s->scratch[2],
++			 s->scratch[3], s->scratch[4], s->scratch[5],
++			 s->scratch[6], s->scratch[7]);
++	}
++	return 0;
++}
++
++/* ---- preload checks and DART mapping ---- */
++
++/* The preloaded image must sit in RAM the kernel does not own: a DT
++ * reserved-memory child with no-map must cover [pa, pa + len). Same
++ * rule as ane_t6021_fw_preload_reserved(). */
++static bool ane_range_reserved(u64 pa, u64 len)
++{
++	struct device_node *parent = of_find_node_by_path("/reserved-memory");
++	struct device_node *np;
++	bool ok = false;
++
++	if (!parent)
++		return false;
++	for_each_available_child_of_node(parent, np) {
++		struct resource res;
++
++		if (!of_property_read_bool(np, "no-map") ||
++		    of_address_to_resource(np, 0, &res))
++			continue;
++		if (res.start <= pa && pa + len - 1 <= res.end) {
++			ok = true;
++			of_node_put(np);
++			break;
++		}
++	}
++	of_node_put(parent);
++	return ok;
++}
++
++/* The preload must look populated (not all zero or all ones in its
++ * first 64 bytes). A weak check: the H15 image layout is not measured. */
++static int ane_preload_populated(struct ane_boot *a, unsigned int seg)
++{
++	u8 buf[64];
++	void *p = memremap(a->seg_pa[seg], sizeof(buf), MEMREMAP_WB);
++	bool zero = true, ones = true;
++	unsigned int i;
++
++	if (!p)
++		return -ENOMEM;
++	memcpy(buf, p, sizeof(buf));
++	memunmap(p);
++	for (i = 0; i < sizeof(buf); i++) {
++		zero &= buf[i] == 0x00;
++		ones &= buf[i] == 0xff;
++	}
++	dev_info(a->dev, "preload seg%u pa %#llx first bytes %*phN\n", seg,
++		 a->seg_pa[seg], 16, buf);
++	return (zero || ones) ? -ENODATA : 0;
++}
++
++static void ane_unmap(struct ane_boot *a)
++{
++	unsigned int s;
++
++	for (s = 0; s < 2; s++)
++		if (a->seg_mapped[s])
++			iommu_unmap(a->dom, a->seg_iova[s], a->seg_mapped[s]);
++}
++
++static int ane_map_preload(struct ane_boot *a)
++{
++	int prot = IOMMU_READ | IOMMU_WRITE;
++	unsigned int s;
++	int ret;
++
++	a->dom = iommu_get_domain_for_dev(a->dev);
++	if (!a->dom) {
++		dev_err(a->dev, "no iommu domain: the ane node needs iommus to the three ANE DARTs (stage 2b)\n");
++		return -ENODEV;
++	}
++	if (dev_is_dma_coherent(a->dev))
++		prot |= IOMMU_CACHE;
++
++	for (s = 0; s < 2; s++) {
++		u64 off;
++
++		if (a->seg_iova[s] + a->seg_size[s] - 1 >
++		    a->dom->geometry.aperture_end) {
++			dev_err(a->dev, "seg%u iova %#llx+%#llx outside aperture %#llx\n",
++				s, a->seg_iova[s], a->seg_size[s],
++				(u64)a->dom->geometry.aperture_end);
++			ret = -ERANGE;
++			goto err;
++		}
++		for (off = 0; off < a->seg_size[s]; off += ANE_DART_PAGE) {
++			if (iommu_iova_to_phys(a->dom, a->seg_iova[s] + off)) {
++				dev_err(a->dev, "iova %#llx already mapped; refusing to alias\n",
++					a->seg_iova[s] + off);
++				ret = -EBUSY;
++				goto err;
++			}
++			ret = iommu_map(a->dom, a->seg_iova[s] + off,
++					a->seg_pa[s] + off, ANE_DART_PAGE,
++					prot, GFP_KERNEL);
++			if (ret) {
++				dev_err(a->dev, "iommu_map %#llx: %d\n",
++					a->seg_iova[s] + off, ret);
++				goto err;
++			}
++			a->seg_mapped[s] = off + ANE_DART_PAGE;
++		}
++	}
++	dev_info(a->dev, "preload mapped: TEXT iova %#llx size %#llx, DATA iova %#llx size %#llx\n",
++		 a->seg_iova[0], a->seg_size[0], a->seg_iova[1], a->seg_size[1]);
++	return 0;
++err:
++	ane_unmap(a);
++	memset(a->seg_mapped, 0, sizeof(a->seg_mapped));
++	return ret;
++}
++
++/* ---- handshake: first leg only ---- */
++
++/*
++ * Returns 0 when READY was seen, a negative errno before the CPU was
++ * released (everything unwound by the caller), or -ETIMEDOUT after the
++ * CPU was released (a->cpu_started is set; nothing may be unwound).
++ */
++static int ane_handshake(struct ane_boot *a)
++{
++	struct ane_state st = {};
++	unsigned long timeout = clamp(ready_wait_ms, 100U, 20000U);
++	unsigned int i;
++	u32 v = 0;
++	int ret;
++
++	if (!engine_writes) {
++		dev_err(a->dev, "handshake=1 needs engine_writes=1; refusing before any access\n");
++		return -EPERM;
++	}
++	if (!seg_text_pa || !seg_data_pa ||
++	    !IS_ALIGNED(seg_text_pa, ANE_DART_PAGE) ||
++	    !IS_ALIGNED(seg_data_pa, ANE_DART_PAGE)) {
++		dev_err(a->dev, "seg_text_pa and seg_data_pa are required and must be 16 KiB aligned\n");
++		return -EINVAL;
++	}
++	a->seg_pa[0] = seg_text_pa;
++	a->seg_pa[1] = seg_data_pa;
++	a->seg_iova[0] = ANE_SEG_TEXT_IOVA;
++	a->seg_iova[1] = ANE_SEG_DATA_IOVA;
++	a->seg_size[0] = ANE_SEG_TEXT_SIZE;
++	a->seg_size[1] = ANE_SEG_DATA_SIZE;
++
++	/* G1: both preload windows must be DT no-map reserved RAM. */
++	if (!ane_range_reserved(a->seg_pa[0], a->seg_size[0]) ||
++	    !ane_range_reserved(a->seg_pa[1], a->seg_size[1])) {
++		dev_err(a->dev, "preload windows are not covered by DT no-map reserved-memory; the kernel may own that RAM; refusing\n");
++		return -EACCES;
++	}
++
++	/* G2: read CPU_CONTROL, CPU_STATUS, RVBAR and SCRATCH first. */
++	ret = ane_read_state(a, 1 | 2 | 8, &st);
++	if (ret)
++		return ret;
++	if (st.ctl & ANE_CPU_RUN) {
++		dev_err(a->dev, "CPU_CONTROL RUN already set (%#x): something started the ASC; not touching the CPU\n",
++			st.ctl);
++		return -EBUSY;
++	}
++	if (st.scratch[ANE_SCRATCH_N - 1] == ANE_BOOT_READY) {
++		dev_err(a->dev, "SCRATCH7 already holds READY: stale coprocessor state (warm reboot); power-cycle the machine first\n");
++		return -EBUSY;
++	}
++	/* G3: RVBAR must already be latched by iBoot at the TEXT remap IOVA.
++	 * H15 ASSUMPTION: iBoot latches it as on T6021 (value 0x10000000001).
++	 * This draft never writes RVBAR; an unlatched RVBAR means no preload
++	 * was set up for this boot. */
++	if (!(st.rvbar & 1) ||
++	    (st.rvbar & ANE_RVBAR_ADDR_MASK) != a->seg_iova[0]) {
++		dev_err(a->dev, "RVBAR %#llx is not latched at %#llx; no iBoot preload for this boot, or a different layout; refusing\n",
++			st.rvbar, a->seg_iova[0]);
++		return -ENODEV;
++	}
++	/* G4: the preloaded memory must look populated. */
++	ret = ane_preload_populated(a, 0);
++	if (!ret)
++		ret = ane_preload_populated(a, 1);
++	if (ret) {
++		dev_err(a->dev, "preload at the given physical addresses looks empty (%d); refusing\n",
++			ret);
++		return ret;
++	}
++
++	/* The module reference is taken before the first write and kept
++	 * once the CPU starts. */
++	if (!try_module_get(THIS_MODULE))
++		return -EBUSY;
++
++	ane_phase(a, "M1 DART map of the preload");
++	ret = ane_map_preload(a);
++	if (ret)
++		goto out_put;
++
++	/* Writes. H14 order, minus the P-1 tunables and the pre-CPU table:
++	 * the P-1 block wedged a T6021 into a watchdog reset and was later
++	 * shown unnecessary (findings sec. 31); the table block hung it too. */
++	ane_phase(a, "W1 SCRATCH clear");
++	for (i = 0; i < ANE_SCRATCH_N && !ret; i++)
++		ret = ane_wr32(a, scratch0_off + 4 * i, 0);
++	if (ret)
++		goto out_unmap;
++	ane_phase(a, "W2 SCRATCH6=1 (MBI select, H14 value)");
++	ret = ane_wr32(a, scratch0_off + 4 * 6, 1);
++	if (ret)
++		goto out_unmap;
++	ane_phase(a, "W3 SCRATCH7 pulse 1 -> 0");
++	ret = ane_wr32(a, scratch0_off + 4 * 7, 1);
++	if (!ret)
++		ret = ane_wr32(a, scratch0_off + 4 * 7, 0);
++	if (ret)
++		goto out_unmap;
++
++	ane_phase(a, "W4 CPU_CONTROL = 0");
++	ret = ane_wr32(a, ANE_ASC_CPU_CONTROL, 0);
++	if (ret)
++		goto out_unmap;
++	ane_phase(a, "W5 CPU_CONTROL = RUN");
++	ret = ane_wr32(a, ANE_ASC_CPU_CONTROL, ANE_CPU_RUN_RELEASE);
++	if (ret)
++		goto out_unmap;
++	a->cpu_started = true;	/* no unwind from here on */
++
++	ane_phase(a, "P1 poll SCRATCH7 for READY");
++	for (i = 0; i < timeout; i++) {
++		if (ane_rd32(a, scratch0_off + 4 * 7, &v))
++			break;
++		if (v == ANE_BOOT_READY)
++			break;
++		usleep_range(900, 1100);
++	}
++	if (v == ANE_BOOT_READY) {
++		dev_info(a->dev, "READY observed after %u polls (about 1 ms each). Stopping here: no init publish, no wake, no mailbox.\n", i);
++		ane_read_state(a, 2 | 8, &st);
++		return 0;
++	}
++	dev_err(a->dev, "no READY within %lu ms (SCRATCH7 = %#x). Holding all state; reboot before retrying.\n",
++		timeout, v);
++	ane_read_state(a, 2 | 8, &st);
++	return -ETIMEDOUT;
++
++out_unmap:
++	ane_unmap(a);
++out_put:
++	module_put(THIS_MODULE);
++	return ret;
++}
++
++static int ane_boot_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct ane_state st = {};
++	struct ane_boot *a;
++	int ret;
++
++	if (!optin || strcmp(optin, "t6030")) {
++		dev_err(dev, "not probing: optin=t6030 required. EXPERIMENTAL, untested on silicon.\n");
++		return -EPERM;
++	}
++	if (handshake && !engine_writes) {
++		dev_err(dev, "handshake=1 requires engine_writes=1\n");
++		return -EPERM;
++	}
++	if (!dev->pm_domain)
++		return dev_err_probe(dev, -ENODEV, "no power domain attached (ps_ane_sys)\n");
++	if (!ane_off_ok(scratch0_off, 4) ||
++	    !ane_off_ok(scratch0_off + 4 * (ANE_SCRATCH_N - 1), 4))
++		return dev_err_probe(dev, -EINVAL, "scratch0_off %#x is outside the allowed engine range\n",
++				     scratch0_off);
++
++	a = devm_kzalloc(dev, sizeof(*a), GFP_KERNEL);
++	if (!a)
++		return -ENOMEM;
++	a->dev = dev;
++	platform_set_drvdata(pdev, a);
++
++	ret = devm_pm_runtime_enable(dev);
++	if (ret)
++		return ret;
++
++	if (peek || handshake) {
++		if (!ane_mmio_nonposted(dev))
++			return dev_err_probe(dev, -EINVAL,
++					     "no nonposted-mmio on the node chain; engine MMIO must be non-posted\n");
++		a->eng = devm_platform_ioremap_resource_byname(pdev, "engine");
++		if (IS_ERR(a->eng))
++			return dev_err_probe(dev, PTR_ERR(a->eng), "engine window map failed\n");
++	}
++
++	/* genpd is the only power path. Its pwrstate driver waits for the
++	 * ps_ane_sys ACTUAL field; this module never maps PMGR. */
++	ret = pm_runtime_resume_and_get(dev);
++	if (ret) {
++		dev_err(dev, "power on failed: %d\n", ret);
++		return ret;
++	}
++	dev_info(dev, "ane_sys on (peek=%#x engine_writes=%d handshake=%d)\n",
++		 peek, engine_writes, handshake);
++
++	if (handshake) {
++		ret = ane_handshake(a);
++		if (a->cpu_started) {
++			/* Keep power, mappings and the module reference. */
++			dev_warn(dev, "ASC CPU released: module pinned, ane_sys stays on, reboot to park\n");
++			return 0;
++		}
++	} else if (peek) {
++		ret = ane_read_state(a, peek, &st);
++	}
++
++	pm_runtime_put_sync_suspend(dev);
++	dev_info(dev, "ane_sys released, result %d\n", ret);
++	return ret;
++}
++
++static const struct of_device_id ane_boot_of_match[] = {
++	{ .compatible = "apple,t6030-ane" },
++	{ }
++};
++/* No MODULE_DEVICE_TABLE: nothing autoloads this module. */
++
++static struct platform_driver ane_boot_driver = {
++	.driver = {
++		.name = "ane_t6030_boot",
++		.of_match_table = ane_boot_of_match,
++		.suppress_bind_attrs = true,
++	},
++	.probe = ane_boot_probe,
++};
++module_platform_driver(ane_boot_driver);
++
++MODULE_LICENSE("Dual MIT/GPL");
++MODULE_DESCRIPTION("Apple Neural Engine (T6030/M3 Pro) opt-in READY handshake, DRAFT");
