@@ -48,6 +48,9 @@ bench)
 		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 99 -o md > "$out/$n-vulkan.md" 2>"$out/$n-vulkan.err" || echo "vulkan failed: $n" >> "$out/failures"
 		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 0 -t 6 -o md > "$out/$n-cpu.md" 2>"$out/$n-cpu.err" || echo "cpu failed: $n" >> "$out/failures"
 	done
+	if grep -qs "SUBMIT failed" "$out"/*-vulkan.err; then
+		echo "GPU jobs failed (SUBMIT failed): the Vulkan numbers are not valid" | tee "$out/INVALID-vulkan"
+	fi
 	echo "results: $out"
 	;;
 *)
