@@ -31,6 +31,19 @@ Same tools and models. Kernel 7.2.11-m3gpu+ with `agx-linux-kit/patches/t6030-pm
 
 Token generation is now 3.5 to 4 times faster. GPU and CPU text still match (CHECK_SAME). The kernel log has no GPU fault, firmware halt or refused submit. The CPU is still a little faster than the GPU for token generation. The next limit for the GPU is the shader code, not the memory.
 
+### Flash attention (2026-10-26 21:30)
+
+The compiler fault is fixed with `agx-linux-kit/patches/mesa-agx3-fmul-narrow-wait.patch` (Mesa build folder only, not yet installed in `/opt/mesa-m3`).
+
+| Model | fa | pp512 | tg128 |
+|---|---|---|---|
+| Llama 3.2 3B Q4_K_M | 0 | 357.44 | 47.83 |
+| Llama 3.2 3B Q4_K_M | 1 | 357.06 | 47.44 |
+| Llama 3.1 8B Q4_K_M | 0 | 150.08 | 22.87 |
+| Llama 3.1 8B Q4_K_M | 1 | 150.07 | 22.78 |
+
+At these lengths flash attention gives no speed change. It can help with long contexts, which use less memory with it. `test-backend-ops -o FLASH_ATTN_EXT`: 5368 of 5368 pass on the GPU. With `-fa on`, both models give the same text as the CPU (`-c 2048`; the 8B CPU run without a context limit was stopped by the out-of-memory killer at 13.8 GB).
+
 The sections below describe the state before the fix.
 
 ## What the numbers say
@@ -47,6 +60,6 @@ The sections below describe the state before the fix.
 
 ## Next steps
 
-1. Find the instruction that the compiler refuses in the flash-attention shader. Report it with the upstream draft.
+1. Done: the refused instruction was an f32 multiply with a half result and a wide wait. Fixed by `agx-linux-kit/patches/mesa-agx3-fmul-narrow-wait.patch`.
 2. Done: memory ran at about 32 GB/s because no driver requested the PMP memory floor. With the patch, the 8B model makes 22.7 (GPU) and 25.1 (CPU) tokens/s.
 3. Run the same models with Metal on macOS for the Linux vs macOS comparison (macOS stays offline; copy the models over the local link).
