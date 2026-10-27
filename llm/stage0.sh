@@ -5,6 +5,7 @@
 #   llm/stage0.sh build    clone and build llama.cpp
 #   llm/stage0.sh models   download the test models (about 7 GB)
 #   llm/stage0.sh bench    run llama-bench, Vulkan and CPU, write results
+#   llm/stage0.sh check    same prompt on the GPU and the CPU, the text must match
 set -euo pipefail
 
 WORK="${LLM_WORK:-$HOME/llm-work}"
@@ -26,7 +27,9 @@ build)
 	[ -n "$LLAMA_COMMIT" ] && git checkout -q "$LLAMA_COMMIT"
 	git rev-parse HEAD > "$WORK/results/llama-commit"
 	cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release
-	cmake --build build -j"$(nproc)" --target llama-bench llama-cli
+	cmake --build build -j"$(nproc)" --target llama-bench llama-completion
+	cmake -B build-cpu -DGGML_VULKAN=OFF -DCMAKE_BUILD_TYPE=Release
+	cmake --build build-cpu -j"$(nproc)" --target llama-bench llama-completion
 	;;
 models)
 	for m in "${MODELS[@]}"; do
@@ -39,21 +42,44 @@ models)
 	done | tee "$WORK/results/models.sha256"
 	;;
 bench)
+	# Vulkan must load the native Mesa driver. Without this, a shell outside the desktop
+	# session (SSH) loads the distribution's Mesa, which cannot run compute on new GPUs.
+	if [ -z "${VK_DRIVER_FILES:-}" ]; then
+		for p in /opt/mesa-agx /opt/mesa-m3; do
+			[ -f "$p/share/vulkan/icd.d/asahi_icd.aarch64.json" ] && { export VK_DRIVER_FILES="$p/share/vulkan/icd.d/asahi_icd.aarch64.json"; break; }
+		done
+	fi
 	B="$WORK/llama.cpp/build/bin/llama-bench"
 	out="$WORK/results/bench-$(date +%Y%m%d-%H%M)"
 	mkdir -p "$out"
-	{ uname -r; vulkaninfo --summary 2>/dev/null | grep -E 'deviceName|driverInfo' || true; } > "$out/system.txt"
+	{ uname -r; echo "VK_DRIVER_FILES=${VK_DRIVER_FILES:-}"; vulkaninfo --summary 2>/dev/null | grep -E 'deviceName|driverInfo' || true; } > "$out/system.txt"
 	for m in "$WORK"/models/*.gguf; do
 		n="$(basename "$m" .gguf)"
-		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 99 -o md > "$out/$n-vulkan.md" 2>"$out/$n-vulkan.err" || echo "vulkan failed: $n" >> "$out/failures"
-		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 0 -t 6 -o md > "$out/$n-cpu.md" 2>"$out/$n-cpu.err" || echo "cpu failed: $n" >> "$out/failures"
+		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 99 -fa 0 -o md > "$out/$n-vulkan.md" 2>"$out/$n-vulkan.err" || echo "vulkan failed: $n" >> "$out/failures"
+		# CPU numbers need a build without Vulkan (build-cpu): with Vulkan, llama.cpp sends
+		# large prompt batches to the GPU even with -ngl 0.
+		[ -x "$WORK/llama.cpp/build-cpu/bin/llama-bench" ] && "$WORK/llama.cpp/build-cpu/bin/llama-bench" \
+			-m "$m" -p 512 -n 128 -r 3 -t 6 -o md > "$out/$n-cpu.md" 2>"$out/$n-cpu.err" || echo "cpu failed: $n" >> "$out/failures"
 	done
 	if grep -qs "SUBMIT failed" "$out"/*-vulkan.err; then
 		echo "GPU jobs failed (SUBMIT failed): the Vulkan numbers are not valid" | tee "$out/INVALID-vulkan"
 	fi
 	echo "results: $out"
 	;;
+check)
+	[ -z "${VK_DRIVER_FILES:-}" ] && for p in /opt/mesa-agx /opt/mesa-m3; do
+		[ -f "$p/share/vulkan/icd.d/asahi_icd.aarch64.json" ] && { export VK_DRIVER_FILES="$p/share/vulkan/icd.d/asahi_icd.aarch64.json"; break; }
+	done
+	P="The capital of France is Paris. List the first five prime numbers, separated by commas:"
+	m="$(ls "$WORK"/models/*.gguf | head -1)"
+	"$WORK/llama.cpp/build/bin/llama-completion" -m "$m" -p "$P" -n 40 --temp 0 --seed 1 -ngl 99 -fa off \
+		-no-cnv --no-display-prompt 2>/dev/null > "$WORK/results/check-gpu.txt"
+	"$WORK/llama.cpp/build-cpu/bin/llama-completion" -m "$m" -p "$P" -n 40 --temp 0 --seed 1 \
+		-no-cnv --no-display-prompt 2>/dev/null > "$WORK/results/check-cpu.txt"
+	cat "$WORK/results/check-gpu.txt"
+	cmp -s "$WORK/results/check-gpu.txt" "$WORK/results/check-cpu.txt" && echo CHECK_SAME || { echo CHECK_DIFFERENT; exit 1; }
+	;;
 *)
-	sed -n '2,8p' "$0"; exit 1
+	sed -n '2,9p' "$0"; exit 1
 	;;
 esac
