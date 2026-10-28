@@ -55,7 +55,7 @@ bench)
 	{ uname -r; echo "VK_DRIVER_FILES=${VK_DRIVER_FILES:-}"; vulkaninfo --summary 2>/dev/null | grep -E 'deviceName|driverInfo' || true; } > "$out/system.txt"
 	for m in "$WORK"/models/*.gguf; do
 		n="$(basename "$m" .gguf)"
-		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 99 -fa 0 -o md > "$out/$n-vulkan.md" 2>"$out/$n-vulkan.err" || echo "vulkan failed: $n" >> "$out/failures"
+		"$B" -m "$m" -p 512 -n 128 -r 3 -ngl 99 -fa 1 -o md > "$out/$n-vulkan.md" 2>"$out/$n-vulkan.err" || echo "vulkan failed: $n" >> "$out/failures"
 		# CPU numbers need a build without Vulkan (build-cpu): with Vulkan, llama.cpp sends
 		# large prompt batches to the GPU even with -ngl 0.
 		[ -x "$WORK/llama.cpp/build-cpu/bin/llama-bench" ] && "$WORK/llama.cpp/build-cpu/bin/llama-bench" \
@@ -72,7 +72,7 @@ check)
 	done
 	P="The capital of France is Paris. List the first five prime numbers, separated by commas:"
 	m="$(ls "$WORK"/models/*.gguf | head -1)"
-	"$WORK/llama.cpp/build/bin/llama-completion" -m "$m" -p "$P" -n 40 --temp 0 --seed 1 -ngl 99 -fa off \
+	"$WORK/llama.cpp/build/bin/llama-completion" -m "$m" -p "$P" -n 40 --temp 0 --seed 1 -ngl 99 -fa on \
 		-no-cnv --no-display-prompt 2>/dev/null > "$WORK/results/check-gpu.txt"
 	"$WORK/llama.cpp/build-cpu/bin/llama-completion" -m "$m" -p "$P" -n 40 --temp 0 --seed 1 \
 		-no-cnv --no-display-prompt 2>/dev/null > "$WORK/results/check-cpu.txt"
