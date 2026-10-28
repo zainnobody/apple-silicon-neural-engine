@@ -1,0 +1,29 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -7359,6 +7359,16 @@
+     ggml_vk_dispatch_pipeline(ctx, subctx, pipeline, { x_buf, r_buf, p_buf, c_buf, d_buf }, pc, { n_embd, n_tokens, 1 });
+ }
+ 
++// Honeykrisp (Mesa on Apple G15): the iq2_s mat-vec shader with 3 or more columns needs a
++// spill frame of 8204 bytes, over the 8192 bytes the driver admits for compute, so
++// vkEndCommandBuffer fails with VK_ERROR_FEATURE_NOT_PRESENT. Those widths use the matrix path.
++static uint32_t ggml_vk_mul_mat_vec_cols_limit(const vk_device & device, ggml_type type) {
++    if (device->driver_id == vk::DriverId::eMesaHoneykrisp && type == GGML_TYPE_IQ2_S) {
++        return 2;
++    }
++    return mul_mat_vec_max_cols;
++}
++
+ void ggml_vk_mul_mat(ggml_backend_vk_context * ctx, vk_context& subctx, const struct ggml_cgraph * cgraph, int node_idx) {
+     ggml_tensor * dst = cgraph->nodes[node_idx];
+     ggml_tensor * src0 = dst->src[0];
+@@ -7425,7 +7435,7 @@
+         ggml_vk_mul_mat_vec_q_f16(ctx, subctx, cgraph, node_idx, true);
+     // mul_mat_vec supports batching ne12*ne13 when ne11==1, or treating ne11 as the batch size (up to four)
+     // when ne12 and ne13 are one.
+-    } else if ((dst->ne[1] == 1 || (dst->ne[1] <= mul_mat_vec_max_cols && src1->ne[2] * src1->ne[3] == 1)) &&
++    } else if ((dst->ne[1] == 1 || (dst->ne[1] <= ggml_vk_mul_mat_vec_cols_limit(ctx->device, src0->type) && src1->ne[2] * src1->ne[3] == 1)) &&
+                (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_BF16 || ggml_is_quantized(src0->type))) {
+         ggml_vk_mul_mat_vec_q_f16(ctx, subctx, cgraph, node_idx);
+     } else {
