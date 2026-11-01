@@ -164,3 +164,11 @@ Found on the way: the full `test-backend-ops -o MUL_MAT` stops with both tiles, 
 | Box 1 tile + large tile allowed, and `4,2,4` BK 32 | 97.5 and 102.1 ± 8.8: not valid, the M3 ran on battery (AC offline, "Discharging") or right after the fault |
 
 The work stopped at 08:53 under the charger rule. The best result stays 201.9 (box 1).
+
+## iq2_s mat-vec fix on Honeykrisp (2026-10-28)
+
+The full `test-backend-ops` MUL_MAT run crashed on `iq2_s`. The shader for 3 or more columns spills 8204 bytes. Honeykrisp allows 8192 bytes of compute spill, so `vkEndCommandBuffer` fails with `VK_ERROR_FEATURE_NOT_PRESENT`. This was not a Mesa regression.
+
+Fix: `llm/llama-vk-honeykrisp-iq2s-matvec-cols.patch` limits the `iq2_s` mat-vec path to 2 columns on Honeykrisp. Apply it on top of the test-switch patch.
+
+Result with `/opt/mesa-m3` (Mesa with the Q3_K fix): MUL_MAT `iq2_s` 49/49, and all 23 quant types pass.
