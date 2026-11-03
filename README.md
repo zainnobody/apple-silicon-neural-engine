@@ -24,6 +24,41 @@ Window 2026-10-27 11:53: the probe powered `ane_sys` on and off 5 times without 
 | `test-backend-ops` MUL_MAT with the `iq2_s` fix | All 23 quant types pass | `docs/llm-baseline.md` |
 | ANE power cycle probe (stage 2) | 5 cycles, then the Mac reset | `docs/stage2-window-result-2026-10-27.md` |
 
+## Local AI on the GPU, quick start
+
+On a GPU boot of a Mac with the kit installed. `deps` asks for the sudo password once:
+
+```bash
+llm/stage0.sh deps
+```
+
+```bash
+llm/stage0.sh build
+```
+
+```bash
+llm/stage0.sh models
+```
+
+```bash
+llm/stage0.sh bench     # llama-bench on the GPU and the CPU
+```
+
+```bash
+llm/stage0.sh check     # the same prompt must give the same text on GPU and CPU
+```
+
+## Neural Engine progress
+
+```mermaid
+flowchart LR
+    s0["0: llama.cpp on the GPU<br/>done"] --> s1["1: ANE data from macOS<br/>done"]
+    s1 --> s2["2: power on and off<br/>drafted, Mac reset"]
+    s2 --> s3["3: firmware boot<br/>open"]
+    s3 --> s4["4: first ANE program<br/>open"]
+    s4 --> s5["5 and 6: LLM prefill<br/>open"]
+```
+
 ## Findings
 
 | Item | Result | Source |
