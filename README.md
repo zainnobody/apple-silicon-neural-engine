@@ -52,11 +52,18 @@ llm/stage0.sh check     # the same prompt must give the same text on GPU and CPU
 
 ```mermaid
 flowchart LR
-    s0["0: llama.cpp on the GPU<br/>done"] --> s1["1: ANE data from macOS<br/>done"]
-    s1 --> s2["2: power on and off<br/>drafted, Mac reset"]
-    s2 --> s3["3: firmware boot<br/>open"]
-    s3 --> s4["4: first ANE program<br/>open"]
-    s4 --> s5["5 and 6: LLM prefill<br/>open"]
+    s0("Stage 0<br/><small>llama.cpp on the GPU<br/>done</small>"):::core
+    s1("Stage 1<br/><small>ANE data from macOS<br/>done</small>"):::core
+    s2("Stage 2<br/><small>power on and off<br/>drafted, Mac reset</small>"):::ai
+    s3("Stage 3<br/><small>firmware boot<br/>open</small>"):::todo
+    s4("Stage 4<br/><small>first ANE program<br/>open</small>"):::todo
+    s5("Stages 5 and 6<br/><small>LLM prefill<br/>open</small>"):::todo
+    s0 --> s1 --> s2 --> s3 --> s4 --> s5
+    classDef hw fill:#e8f0fe,stroke:#4a72d9,stroke-width:1.5px,color:#14264d
+    classDef core fill:#e6f4ea,stroke:#2f8f4e,stroke-width:1.5px,color:#0f3a1f
+    classDef ui fill:#f3e8fd,stroke:#8e44c9,stroke-width:1.5px,color:#38174f
+    classDef ai fill:#fdeee0,stroke:#d9822b,stroke-width:1.5px,color:#4a2706
+    classDef todo fill:#f1f3f4,stroke:#9aa0a6,stroke-width:1.5px,stroke-dasharray:5 4,color:#3c4043
 ```
 
 ## Findings
