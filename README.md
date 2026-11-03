@@ -1,4 +1,12 @@
-# ane-linux
+# M3 Pro ANE on Linux
+
+Part of the [M3 Pro Asahi Linux kit](https://github.com/zainnobody/m3-pro-asahi-agx-kit). Start with the kit's [guide](https://github.com/zainnobody/m3-pro-asahi-agx-kit/blob/main/GUIDE.md).
+
+[![License: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE)
+![Tested on: M3 Pro J516S](https://img.shields.io/badge/tested%20on-M3%20Pro%20J516S-555)
+![Status: unofficial](https://img.shields.io/badge/Asahi%20Linux-unofficial-orange)
+
+> **Unofficial research.** This is not Asahi Linux code. The Asahi developers do not support it. No ANE code works yet, and an early test made the Mac reset.
 
 Plan and work notes for the Apple Neural Engine (ANE) on Linux, with local LLMs as the goal. The first test machine is the MacBook Pro 16-inch M3 Pro (Mac15,7, J516s, SoC T6030, ANE generation H15).
 
@@ -44,7 +52,7 @@ The ANE has value for low power and for prefill of small, fixed-shape models. It
 - macOS on the test machine stays offline. Stage 1 work in macOS is read only.
 - Apple firmware files stay on the machine. Do not put them in this repository or in any public place.
 - Do not copy Apple code or decompiled code into anything that is published.
-- The Asahi project does not accept contributions made with LLM help. This work is for private use. Any upstream report needs a separate decision.
+- The Asahi project does not accept contributions made with LLM help. This work is not an upstream contribution. Any upstream report needs a separate decision.
 - Each stage that changes the kernel or the boot chain uses the same rollback as `agx-linux-kit` (stock kernel stays the default boot).
 
 ## Files
@@ -66,3 +74,12 @@ The ANE has value for low power and for prefill of small, fixed-shape models. It
 | `docs/stage3-protocol-check.md` | H14 against H16 boot protocol comparison; verdict PARTLY |
 | `patches/drafts/h15-boot-first-leg.patch` | Draft H15 first-leg boot module (CPU release, READY). Not built against a kernel; needs an m1n1 preload reservation first |
 | `stage4/` | Harness and model that compile an `h15g` program on the M5 host Mac |
+
+## License
+
+The scripts and documents in this repository are under the GNU General Public License version 2 ([LICENSE](LICENSE)).
+
+Some files keep another license. Their SPDX header names it:
+
+- `dts/`, `patches/` and `probe/`: Linux kernel and device tree code. The license is GPL-2.0, and some files are dual GPL-2.0 OR MIT.
+- `llm/*.patch`: llama.cpp patches, MIT like llama.cpp.
