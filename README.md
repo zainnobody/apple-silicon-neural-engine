@@ -1,10 +1,24 @@
-# Apple Silicon Neural Engine on Linux
+<p align="center">
+  <img src="assets/banner.jpg" alt="Apple Silicon Neural Engine: Neural Engine research and local AI on the GPU" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/zainnobody/orchard"><b>Orchard hub</b></a> ·
+  <a href="#local-ai-on-the-gpu-quick-start"><b>Local AI quick start</b></a> ·
+  <a href="docs/llm-baseline.md"><b>LLM results</b></a> ·
+  <a href="https://github.com/zainnobody/apple-silicon-linux-kit/blob/main/GUIDE.md"><b>Guide</b></a>
+</p>
+
+<div align="center">
+
+[![License: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE) ![Tested on: M3 Pro J516S](https://img.shields.io/badge/tested%20on-M3%20Pro%20J516S-555) ![Community project](https://img.shields.io/badge/community-project-2f8f4e)
+
+</div>
 
 Part of [Orchard](https://github.com/zainnobody/orchard), extra drivers and fixes for Linux on Apple silicon Macs. Start with the [Apple Silicon Linux Kit guide](https://github.com/zainnobody/apple-silicon-linux-kit/blob/main/GUIDE.md).
 
-[![License: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE) ![Tested on: M3 Pro J516S](https://img.shields.io/badge/tested%20on-M3%20Pro%20J516S-555) ![Status: unofficial](https://img.shields.io/badge/Asahi%20Linux-unofficial-orange)
 
-> **Unofficial research.** This is not Asahi Linux code. The Asahi developers do not support it. No ANE code works yet, and an early test made the Mac reset.
+> **Community research project.** This is not Asahi Linux code. The Asahi developers do not support it. No ANE code works yet, and an early test made the Mac reset.
 
 Plan and work notes for the Apple Neural Engine (ANE) on Linux, with local LLMs as the goal. The first test machine is the MacBook Pro 16-inch M3 Pro (Mac15,7, J516s, SoC T6030, ANE generation H15).
 
