@@ -14,6 +14,16 @@ Status 2026-10-27: Stage 1 data is in our macOS ADT dump (`docs/research-2026-10
 
 Window 2026-10-27 11:53: the probe powered `ane_sys` on and off 5 times without error, then the M3 reset (PMU boot error, no panic). Most likely cause: the PMP got no PTD request for the ANE (bit 5). Next: a PMP report entry for the ANE, then one cycle. See `docs/stage2-window-result-2026-10-27.md`.
 
+## Test results
+
+| Test | Result | Source |
+|---|---|---|
+| llama.cpp on the M3 GPU (Vulkan), Llama 3.1 8B Q4_K_M | 150 tokens/s prompt, 22.7 tokens/s generation | `docs/llm-baseline.md` |
+| Same model on the CPU | 70.6 tokens/s prompt, 25.1 tokens/s generation | `docs/llm-baseline.md` |
+| Same answer on GPU and CPU (temperature 0) | Same 40 tokens | `llm/stage0.sh check` |
+| `test-backend-ops` MUL_MAT with the `iq2_s` fix | All 23 quant types pass | `docs/llm-baseline.md` |
+| ANE power cycle probe (stage 2) | 5 cycles, then the Mac reset | `docs/stage2-window-result-2026-10-27.md` |
+
 ## Findings
 
 | Item | Result | Source |
