@@ -1,0 +1,55 @@
+name: Bug report
+description: A problem with the llama.cpp fixes, the Neural Engine probes or the notes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is community research, not Asahi Linux. Please do not send these problems to the Asahi developers.
+
+        No Neural Engine code works yet, and an early test made the Mac reset. Do not run the ANE probes on a Mac with work that is not saved.
+
+        Before you paste output, remove serial numbers, MAC addresses, user names and host names.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - llama.cpp on the GPU (llm/stage0.sh)
+        - Neural Engine probes
+        - The notes
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac model
+      description: "Run: cat /proc/device-tree/model"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Kernel and Mesa
+      description: "Run: uname -r and vulkaninfo --summary | grep driverInfo"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected, and what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I removed serial numbers, MAC addresses and names from the output.
+          required: true
