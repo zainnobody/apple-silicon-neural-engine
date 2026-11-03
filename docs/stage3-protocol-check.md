@@ -3,8 +3,8 @@
 Date 2026-10-27. Sources: public H14 driver copy (SiliconForest, `ane_t6021*`), public repo `iconidentify/omarchy-ane` (shallow clone, read only, nothing built or run), our own T6030 notes in `ane-linux/docs`. No Apple firmware or decompiled Apple code was copied anywhere. No ssh, no commit, nothing edited under the project.
 
 Path shorthand used below:
-- H14 = `.../scratchpad/k/drivers/accel/ane/` (files `ane_t6021.h`, `ane_t6021_boot.h`, `ane_t6021_boot.c`, `ane_t6021_fwload.c`)
-- H16 = `.../scratchpad/omarchy-ane/ane/h16/` (`ane_h16_main.c`, `ane_h16_soc.c`, `ane_h16.h`) plus `receipts/2026-10-03-ane-h16/README.md`
+- H14 = `drivers/accel/ane/` in a local copy of the SiliconForest kernel tree (files `ane_t6021.h`, `ane_t6021_boot.h`, `ane_t6021_boot.c`, `ane_t6021_fwload.c`)
+- H16 = `ane/h16/` in `iconidentify/omarchy-ane` (`ane_h16_main.c`, `ane_h16_soc.c`, `ane_h16.h`) plus `receipts/2026-10-03-ane-h16/README.md`
 - H15R = the same repo's own M3 notes, `receipts/2026-10-03-ane-h15/README.md` and `ane/h15/`
 - F = `docs/t6021-ane-bringup-findings.md` in that repo
 
